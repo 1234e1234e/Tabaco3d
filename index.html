@@ -165,7 +165,7 @@ input[type="range"] { width: 130px; accent-color: var(--accent); }
     return m;
   }
   function matSet(level) {
-    return { dim: mk(GRAY, 0.26, level), mid: mk(GRAY, 0.6, level), green: mk(GREEN, 0.95, level), soft: mk(GREEN, 0.42, level) };
+    return { dim: mk(GRAY, 0.8, level), mid: mk(GRAY, 1.0, level), green: mk(GREEN, 1.0, level), soft: mk(GREEN, 0.9, level) };
   }
   var M = [matSet(0), matSet(1), matSet(2)];
   var G = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
@@ -210,7 +210,7 @@ input[type="range"] { width: 130px; accent-color: var(--accent); }
   /* ---------- Suelo de referencia (rejilla isométrica fija) ---------- */
   var floorArr = [];
   for (var fi = -12; fi <= 12; fi += 2) { seg(floorArr, fi, -3.6, -12, fi, -3.6, 12); seg(floorArr, -12, -3.6, fi, 12, -3.6, fi); }
-  emit(floorArr, new THREE.LineBasicMaterial({ color: GRAY, transparent: true, opacity: 0.07, depthWrite: false }), scene);
+  emit(floorArr, new THREE.LineBasicMaterial({ color: GRAY, transparent: true, opacity: 0.15, depthWrite: false }), scene);
 
   /* ---------- Etiquetas flotantes ---------- */
   var LABELS = [];
@@ -302,7 +302,7 @@ input[type="range"] { width: 130px; accent-color: var(--accent); }
   (function buildTissue() {
     var g = G[1], m = M[1], r = rnd(7), i, k, l;
     var dim = [], mid = [], green = [];
-    var VX = -1.2, VY = -0.3;                 // eje del haz vascular (corre a lo largo de z)
+    var VX = -1.2, VY = -0.3;
     var stoma = { '1,5': 1, '4,2': 1, '5,5': 1 };
     for (i = 0; i < 7; i++) for (k = 0; k < 7; k++) {
       var cx = -3.6 + 1.2 * i, cz = -3.6 + 1.2 * k;
@@ -388,7 +388,7 @@ input[type="range"] { width: 130px; accent-color: var(--accent); }
     cen.multiplyScalar(1 / names.length);
     var S = {};
     names.forEach(function (n) { S[n] = P[n].clone().sub(cen).multiplyScalar(MS); });
-    var ringC = cen.clone().multiplyScalar(-MS);   // centro del anillo de piridina (origen original)
+    var ringC = cen.clone().multiplyScalar(-MS);
 
     var gray = [], green = [], bonds = [], dbl = [];
     bonds = [['N1', 'C2'], ['C2', 'C3'], ['C3', 'C4'], ['C4', 'C5'], ['C5', 'C6'], ['C6', 'N1'], ['C3', 'C2p'],
@@ -433,24 +433,16 @@ input[type="range"] { width: 130px; accent-color: var(--accent); }
     scanRing = emit(arr, M[2].soft, G[2]);
   })();
 
-  /* ---------- Postproceso: aberración cromática, viñeta y grano ---------- */
+  /* ---------- Postproceso limpio (sin grano ni distorsión) ---------- */
   var rt = renderer.capabilities.isWebGL2 ? new THREE.WebGLMultisampleRenderTarget(2, 2) : new THREE.WebGLRenderTarget(2, 2);
   var post = new THREE.ShaderMaterial({
     uniforms: { tex: { value: rt.texture }, time: { value: 0 } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: [
-      'uniform sampler2D tex; uniform float time; varying vec2 vUv;',
+      'uniform sampler2D tex; varying vec2 vUv;',
       'void main(){',
-      '  vec2 c = vUv - 0.5; float d = dot(c, c);',
-      '  vec2 off = c * (0.0035 + d * 0.03);',
-      '  float r = texture2D(tex, vUv + off).r;',
-      '  float g = texture2D(tex, vUv).g;',
-      '  float b = texture2D(tex, vUv - off).b;',
-      '  vec3 col = vec3(r, g, b);',
-      '  col *= 1.0 - d * 0.8;',
-      '  float n = fract(sin(dot(vUv * 1000.0 + time, vec2(12.9898, 78.233))) * 43758.5453);',
-      '  col += (n - 0.5) * 0.025;',
-      '  gl_FragColor = vec4(col, 1.0);',
+      '  vec4 texColor = texture2D(tex, vUv);',
+      '  gl_FragColor = texColor;',
       '}'
     ].join('\n'),
     depthTest: false, depthWrite: false
