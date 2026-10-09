@@ -1,0 +1,576 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Hoja de Tabaco</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: escena WebGL isométrica a pantalla completa; tarjeta de datos arriba, etiquetas flotantes proyectadas sobre la escena, controles abajo.
+   Un solo look a propósito: grises finos sobre negro con una única tinta verde. */
+:root {
+  --bg: #000000;
+  --fg: #d7d9dc;
+  --muted: #7d828a;
+  --accent: #62e08c;
+  --card: rgba(12, 14, 13, 0.82);
+  --line: rgba(255, 255, 255, 0.09);
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-display); overflow: hidden; }
+#stage { position: absolute; inset: 0; touch-action: none; cursor: grab; }
+#stage:active { cursor: grabbing; }
+#stage canvas { display: block; width: 100%; height: 100%; }
+#labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.lbl {
+  position: absolute; left: 0; top: -7px; padding-left: 18px;
+  font: 400 10px/14px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+  color: #c9cdd2; text-shadow: 0 0 6px #000, 0 0 2px #000; will-change: transform, opacity;
+}
+.lbl::before { content: ""; position: absolute; left: -3px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.lbl::after { content: ""; position: absolute; left: 3px; top: 7px; width: 12px; height: 1px; background: var(--accent); opacity: 0.7; }
+.lbl.flip { padding-left: 0; padding-right: 18px; }
+.lbl.flip::before { left: auto; right: -3px; }
+.lbl.flip::after { left: auto; right: 3px; }
+.lbl.hot { color: var(--accent); }
+
+.top { position: absolute; top: 14px; left: 0; right: 0; padding-inline: 16px; pointer-events: none; }
+.cards { display: grid; max-width: 460px; }
+.card {
+  grid-area: 1 / 1; padding: 14px 16px 12px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(8px);
+  opacity: 0; visibility: hidden; transform: translateY(6px);
+  transition: opacity 0.45s ease, transform 0.45s ease, visibility 0.45s;
+}
+.card.on { opacity: 1; visibility: visible; transform: none; }
+.kicker { margin: 0 0 6px; font: 600 10px/1.3 var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
+.card h2 { margin: 0 0 3px; font: 700 clamp(20px, 5.6vw, 26px)/1.1 var(--font-display); letter-spacing: -0.01em; color: #dfe2e4; text-wrap: balance; }
+.meta { margin: 0; font: 400 11px/1.5 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.meta sub { font-size: 0.8em; }
+dl { margin: 12px 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; }
+dt { font: 400 11px/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+dd { margin: 0; font: 600 12px/1.4 var(--font-mono); color: #d3d6da; text-align: right; }
+dd.g { color: var(--accent); }
+.src { margin: 10px 0 0; font: 400 10px/1.5 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: #5f6a64; }
+
+.bar-wrap {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 26px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.92) 40%, rgba(0, 0, 0, 0)); pointer-events: none;
+}
+.scale { align-self: flex-start; margin: 0; font: 400 10px/1 var(--font-mono); letter-spacing: 0.14em; color: #5a625d; }
+.controls { width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 16px; pointer-events: auto; }
+.tabs { display: flex; gap: 6px; }
+.tabs button, .reset {
+  padding: 8px 12px; font: 600 10px/1 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
+}
+.tabs button[aria-pressed="true"] { color: #07100a; background: var(--accent); border-color: var(--accent); }
+.zoom { display: flex; align-items: center; gap: 10px; }
+.zoom label { font: 400 10px/1 var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+input[type="range"] { width: 130px; accent-color: var(--accent); }
+.tabs button:focus-visible, .reset:focus-visible, input[type="range"]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.hint { flex-basis: 100%; margin: 0; text-align: center; font: 400 10px/1.4 var(--font-mono); letter-spacing: 0.06em; color: #5a625d; }
+#nogl { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); font-family: var(--font-mono); }
+#nogl[hidden] { display: none; }
+</style>
+
+<main id="stage" aria-label="Escena 3D interactiva: hoja de tabaco analizada en tres escalas, de la hoja entera a la molécula de nicotina"></main>
+<div id="labels" aria-hidden="true"></div>
+<p id="nogl" hidden>Tu navegador no pudo iniciar WebGL, así que la escena 3D no se puede mostrar.</p>
+
+<section class="top" aria-label="Datos de referencia">
+  <div class="cards">
+    <article class="card on" id="card-0">
+      <p class="kicker">Nivel 1 de 3 · Hoja</p>
+      <h2>Hoja de Nicotiana tabacum</h2>
+      <p class="meta">Vista isométrica · escaneo en curso</p>
+      <dl>
+        <dt>Genoma</dt><dd>≈ 4,5 Gb · 2n = 48</dd>
+        <dt>Nicotina en hoja seca</dt><dd class="g">0,6 – 3 %</dd>
+        <dt>Origen del alcaloide</dt><dd>raíz → hoja</dd>
+      </dl>
+      <p class="src">Valores de referencia · esquema sin escala</p>
+    </article>
+    <article class="card" id="card-1">
+      <p class="kicker">Nivel 2 de 3 · Tejido</p>
+      <h2>Tejido foliar</h2>
+      <p class="meta">Sección transversal esquemática</p>
+      <dl>
+        <dt>Capas</dt><dd>epidermis · empalizada · esponjoso</dd>
+        <dt>Estomas</dt><dd>intercambio de gases</dd>
+        <dt>Tricomas glandulares</dt><dd class="g">secretan diterpenos y ésteres de azúcar</dd>
+        <dt>Cloroplastos</dt><dd>fotosíntesis</dd>
+      </dl>
+      <p class="src">Valores de referencia · esquema sin escala</p>
+    </article>
+    <article class="card" id="card-2">
+      <p class="kicker">Nivel 3 de 3 · Molécula</p>
+      <h2>Nicotina</h2>
+      <p class="meta">C<sub>10</sub>H<sub>14</sub>N<sub>2</sub> · 162,23 g/mol</p>
+      <dl>
+        <dt>Estructura</dt><dd>piridina + pirrolidina</dd>
+        <dt>Se acumula en</dt><dd class="g">vacuolas de la hoja</dd>
+        <dt>Hidrógenos</dt><dd>omitidos en el esquema</dd>
+      </dl>
+      <p class="src">Valores de referencia · esquema sin escala</p>
+    </article>
+  </div>
+</section>
+
+<footer class="bar-wrap">
+  <p class="scale">ESQUEMÁTICO · SIN ESCALA</p>
+  <div class="controls">
+    <div class="tabs" role="group" aria-label="Nivel de análisis">
+      <button type="button" data-level="0" aria-pressed="true">Hoja</button>
+      <button type="button" data-level="1" aria-pressed="false">Tejido</button>
+      <button type="button" data-level="2" aria-pressed="false">Molécula</button>
+    </div>
+    <div class="zoom">
+      <label for="zoom">Zoom</label>
+      <input type="range" id="zoom" min="0" max="200" step="1" value="0">
+    </div>
+    <button type="button" class="reset" id="reset">Vista isométrica</button>
+    <p class="hint">Arrastra para girar y cambiar el ángulo · rueda o pellizco para acercar</p>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var stage = document.getElementById('stage');
+  var labelLayer = document.getElementById('labels');
+  var renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  } catch (e) {
+    document.getElementById('nogl').hidden = false;
+    return;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  stage.appendChild(renderer.domElement);
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x000000);
+  var camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
+
+  var GREEN = 0x62e08c, GRAY = 0xa7adb5;
+  var FADE = [];
+  function mk(col, op, level) {
+    var m = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false });
+    FADE.push({ m: m, base: op, level: level });
+    return m;
+  }
+  function matSet(level) {
+    return { dim: mk(GRAY, 0.26, level), mid: mk(GRAY, 0.6, level), green: mk(GREEN, 0.95, level), soft: mk(GREEN, 0.42, level) };
+  }
+  var M = [matSet(0), matSet(1), matSet(2)];
+  var G = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
+  G.forEach(function (g) { scene.add(g); });
+
+  /* ---------- Utilidades de geometría ---------- */
+  function seg(a, x1, y1, z1, x2, y2, z2) { a.push(x1, y1, z1, x2, y2, z2); }
+  function poly(a, pts) { for (var i = 0; i < pts.length - 1; i++) seg(a, pts[i][0], pts[i][1], pts[i][2], pts[i + 1][0], pts[i + 1][1], pts[i + 1][2]); }
+  function addBox(a, cx, cy, cz, w, h, d) {
+    var x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2, z0 = cz - d / 2, z1 = cz + d / 2;
+    seg(a, x0, y0, z0, x1, y0, z0); seg(a, x1, y0, z0, x1, y0, z1); seg(a, x1, y0, z1, x0, y0, z1); seg(a, x0, y0, z1, x0, y0, z0);
+    seg(a, x0, y1, z0, x1, y1, z0); seg(a, x1, y1, z0, x1, y1, z1); seg(a, x1, y1, z1, x0, y1, z1); seg(a, x0, y1, z1, x0, y1, z0);
+    seg(a, x0, y0, z0, x0, y1, z0); seg(a, x1, y0, z0, x1, y1, z0); seg(a, x1, y0, z1, x1, y1, z1); seg(a, x0, y0, z1, x0, y1, z1);
+  }
+  function addEllipsoid(a, cx, cy, cz, rx, ry, rz, nl, nm) {
+    var m, l;
+    for (m = 1; m < nm; m++) {
+      var phi = Math.PI * m / nm, y = Math.cos(phi), rr = Math.sin(phi);
+      for (l = 0; l < nl; l++) {
+        var t0 = 2 * Math.PI * l / nl, t1 = 2 * Math.PI * (l + 1) / nl;
+        seg(a, cx + rx * rr * Math.cos(t0), cy + ry * y, cz + rz * rr * Math.sin(t0), cx + rx * rr * Math.cos(t1), cy + ry * y, cz + rz * rr * Math.sin(t1));
+      }
+    }
+    for (l = 0; l < nl; l++) {
+      var th = 2 * Math.PI * l / nl;
+      for (m = 0; m < nm; m++) {
+        var p0 = Math.PI * m / nm, p1 = Math.PI * (m + 1) / nm;
+        seg(a, cx + rx * Math.sin(p0) * Math.cos(th), cy + ry * Math.cos(p0), cz + rz * Math.sin(p0) * Math.sin(th),
+               cx + rx * Math.sin(p1) * Math.cos(th), cy + ry * Math.cos(p1), cz + rz * Math.sin(p1) * Math.sin(th));
+      }
+    }
+  }
+  function emit(a, mat, parent) {
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(a, 3));
+    var o = new THREE.LineSegments(g, mat);
+    parent.add(o);
+    return o;
+  }
+  function rnd(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+
+  /* ---------- Suelo de referencia (rejilla isométrica fija) ---------- */
+  var floorArr = [];
+  for (var fi = -12; fi <= 12; fi += 2) { seg(floorArr, fi, -3.6, -12, fi, -3.6, 12); seg(floorArr, -12, -3.6, fi, 12, -3.6, fi); }
+  emit(floorArr, new THREE.LineBasicMaterial({ color: GRAY, transparent: true, opacity: 0.07, depthWrite: false }), scene);
+
+  /* ---------- Etiquetas flotantes ---------- */
+  var LABELS = [];
+  function addLabel(level, text, group, vec, opts) {
+    var el = document.createElement('div');
+    el.className = 'lbl' + (opts && opts.hot ? ' hot' : '');
+    el.textContent = text;
+    labelLayer.appendChild(el);
+    var o = { el: el, level: level, group: group, v: vec.clone(), dyn: opts && opts.dyn, flipped: false };
+    LABELS.push(o);
+    return o;
+  }
+
+  /* ================= NIVEL 1: HOJA ================= */
+  var LEN = 14, HW = 4.2;
+  function wid(u) { var s = Math.sin(Math.PI * Math.pow(u, 0.72)); return HW * Math.pow(Math.max(s, 0), 0.85); }
+  function leafP(u, v, o) {
+    var w = wid(u), n = w / HW;
+    o[0] = (u - 0.5) * LEN;
+    o[2] = v * w;
+    o[1] = 1.3 * Math.sin(Math.PI * u * 0.8) - 1.1 * u * u * u - 0.55 * v * v * n + 0.09 * Math.sin(u * 16 + v * 2.5) * Math.abs(v) * n - 0.4;
+    return o;
+  }
+  function leafPt(u, v) { return leafP(u, v, [0, 0, 0]); }
+  (function buildLeaf() {
+    var g = G[0], m = M[0], i, j, k;
+    var dim = [], mid = [], green = [];
+    for (j = 0; j <= 16; j++) {
+      var vv = -1 + 2 * j / 16, pts = [];
+      for (i = 0; i <= 48; i++) pts.push(leafPt(0.01 + 0.985 * i / 48, vv));
+      poly(dim, pts);
+    }
+    for (i = 1; i < 35; i++) {
+      var uu = i / 35, pts2 = [];
+      for (k = 0; k <= 24; k++) pts2.push(leafPt(uu, -1 + 2 * k / 24));
+      poly(dim, pts2);
+    }
+    [-1, 1].forEach(function (s) {
+      var edge = [];
+      for (i = 0; i <= 80; i++) edge.push(leafPt(i / 80, s));
+      poly(green, edge);
+    });
+    [-0.05, 0, 0.05].forEach(function (dz) {
+      var rib = [];
+      for (i = 0; i <= 80; i++) { var p = leafPt(i / 80, 0); p[2] += dz; rib.push(p); }
+      poly(green, rib);
+    });
+    [-1, 1].forEach(function (s) {
+      for (j = 0; j < 10; j++) {
+        var u0 = 0.12 + 0.075 * j, du = 0.2 - 0.06 * (j / 9), vein = [];
+        for (k = 0; k <= 22; k++) {
+          var t = k / 22;
+          vein.push(leafPt(Math.min(0.985, u0 + du * Math.pow(t, 0.8)), s * Math.pow(t, 0.9) * 0.95));
+        }
+        poly(mid, vein);
+      }
+    });
+    emit(dim, m.dim, g); emit(mid, m.mid, g); emit(green, m.green, g);
+
+    var a1 = leafPt(0.42, 0.62), a2 = leafPt(0.62, 0), a4 = leafPt(0.985, 0);
+    var u5 = 0.12 + 0.075 * 5, du5 = 0.2 - 0.06 * (5 / 9);
+    var a3 = leafPt(u5 + du5 * Math.pow(0.7, 0.8), -Math.pow(0.7, 0.9) * 0.95);
+    addLabel(0, 'Lámina', g, new THREE.Vector3(a1[0], a1[1], a1[2]));
+    addLabel(0, 'Nervadura central', g, new THREE.Vector3(a2[0], a2[1], a2[2]));
+    addLabel(0, 'Nervio secundario', g, new THREE.Vector3(a3[0], a3[1], a3[2]));
+    addLabel(0, 'Ápice', g, new THREE.Vector3(a4[0], a4[1], a4[2]));
+  })();
+  var NSC = 28;
+  var scanPos = new Float32Array((NSC + 1) * 3), scanPos2 = new Float32Array((NSC + 1) * 3);
+  var scanGeo = new THREE.BufferGeometry(), scanGeo2 = new THREE.BufferGeometry();
+  scanGeo.setAttribute('position', new THREE.BufferAttribute(scanPos, 3));
+  scanGeo2.setAttribute('position', new THREE.BufferAttribute(scanPos2, 3));
+  var scanLine = new THREE.Line(scanGeo, M[0].green), scanLine2 = new THREE.Line(scanGeo2, M[0].soft);
+  scanLine.frustumCulled = scanLine2.frustumCulled = false;
+  G[0].add(scanLine, scanLine2);
+  var scanLabel = addLabel(0, 'Sección 0 %', G[0], new THREE.Vector3(), { hot: true, dyn: true });
+  function updateScan(u) {
+    var p = [0, 0, 0], k;
+    for (k = 0; k <= NSC; k++) { leafP(u, -1 + 2 * k / NSC, p); scanPos[k * 3] = p[0]; scanPos[k * 3 + 1] = p[1] + 0.05; scanPos[k * 3 + 2] = p[2]; }
+    var u2 = Math.max(0.01, u - 0.03);
+    for (k = 0; k <= NSC; k++) { leafP(u2, -1 + 2 * k / NSC, p); scanPos2[k * 3] = p[0]; scanPos2[k * 3 + 1] = p[1] + 0.05; scanPos2[k * 3 + 2] = p[2]; }
+    scanGeo.attributes.position.needsUpdate = true; scanGeo2.attributes.position.needsUpdate = true;
+    scanLabel.v.set(scanPos[NSC * 3], scanPos[NSC * 3 + 1], scanPos[NSC * 3 + 2]);
+    scanLabel.el.textContent = 'Sección ' + Math.round(u * 100) + ' %';
+  }
+
+  /* ================= NIVEL 2: TEJIDO ================= */
+  var scanSq;
+  (function buildTissue() {
+    var g = G[1], m = M[1], r = rnd(7), i, k, l;
+    var dim = [], mid = [], green = [];
+    var VX = -1.2, VY = -0.3;                 // eje del haz vascular (corre a lo largo de z)
+    var stoma = { '1,5': 1, '4,2': 1, '5,5': 1 };
+    for (i = 0; i < 7; i++) for (k = 0; k < 7; k++) {
+      var cx = -3.6 + 1.2 * i, cz = -3.6 + 1.2 * k;
+      addBox(dim, cx, 2.15, cz, 1.16, 0.4, 1.16);
+      addBox(dim, cx, 1.15, cz, 1.0, 1.6, 1.0);
+      for (l = 0; l < 2; l++) addEllipsoid(green, cx + (r() - 0.5) * 0.3, 0.55 + r() * 1.1, cz + (r() - 0.5) * 0.3, 0.17, 0.09, 0.13, 6, 3);
+      if (stoma[i + ',' + k]) {
+        addEllipsoid(green, cx, -1.55, cz - 0.27, 0.5, 0.2, 0.22, 10, 5);
+        addEllipsoid(green, cx, -1.55, cz + 0.27, 0.5, 0.2, 0.22, 10, 5);
+      } else addBox(dim, cx, -1.55, cz, 1.16, 0.4, 1.16);
+    }
+    for (i = 0; i < 6; i++) for (k = 0; k < 6; k++) for (l = 0; l < 2; l++) {
+      var ex = -3.9 + 1.56 * i + (r() - 0.5) * 0.5, ez = -3.9 + 1.56 * k + (r() - 0.5) * 0.5, ey = -0.95 + l * 0.8 + (r() - 0.5) * 0.3;
+      if (Math.hypot(ex - VX, ey - VY) < 1.5) continue;
+      var s = r();
+      addEllipsoid(dim, ex, ey, ez, 0.62 + s * 0.25, 0.42 + s * 0.15, 0.62 + (1 - s) * 0.25, 8, 5);
+    }
+    addBox(mid, 0, 0.3, 0, 8.4, 4.1, 8.4);
+    var n, z;
+    for (z = -4.2; z <= 4.21; z += 0.6) for (n = 0; n < 12; n++) {
+      var a0 = 2 * Math.PI * n / 12, a1 = 2 * Math.PI * (n + 1) / 12;
+      seg(mid, VX + 0.95 * Math.cos(a0), VY + 0.95 * Math.sin(a0), z, VX + 0.95 * Math.cos(a1), VY + 0.95 * Math.sin(a1), z);
+    }
+    for (n = 0; n < 12; n++) { var an = 2 * Math.PI * n / 12; seg(mid, VX + 0.95 * Math.cos(an), VY + 0.95 * Math.sin(an), -4.2, VX + 0.95 * Math.cos(an), VY + 0.95 * Math.sin(an), 4.2); }
+    for (z = -4.2; z <= 4.21; z += 1.2) for (n = 0; n < 8; n++) {
+      var b0 = 2 * Math.PI * n / 8, b1 = 2 * Math.PI * (n + 1) / 8;
+      seg(green, VX + 0.45 * Math.cos(b0), VY + 0.45 * Math.sin(b0), z, VX + 0.45 * Math.cos(b1), VY + 0.45 * Math.sin(b1), z);
+    }
+    for (n = 0; n < 8; n++) { var bn = 2 * Math.PI * n / 8; seg(green, VX + 0.45 * Math.cos(bn), VY + 0.45 * Math.sin(bn), -4.2, VX + 0.45 * Math.cos(bn), VY + 0.45 * Math.sin(bn), 4.2); }
+    [[-2.4, 1.8, 1.25, 0.55], [2.8, -2.2, 0.8, 0.4]].forEach(function (t) {
+      var x = t[0], zz = t[1], h = t[2], hr = t[3], top = 2.35 + h, c;
+      for (c = 0; c < 4; c++) { var ac = Math.PI / 2 * c; seg(mid, x + 0.12 * Math.cos(ac), 2.35, zz + 0.12 * Math.sin(ac), x + 0.12 * Math.cos(ac), top, zz + 0.12 * Math.sin(ac)); }
+      [0.35, 0.7, 1].forEach(function (f) {
+        for (c = 0; c < 8; c++) {
+          var q0 = 2 * Math.PI * c / 8, q1 = 2 * Math.PI * (c + 1) / 8, yy = 2.35 + h * f;
+          seg(mid, x + 0.12 * Math.cos(q0), yy, zz + 0.12 * Math.sin(q0), x + 0.12 * Math.cos(q1), yy, zz + 0.12 * Math.sin(q1));
+        }
+      });
+      addEllipsoid(green, x, top + hr * 0.8, zz, hr, hr * 0.85, hr, 10, 6);
+    });
+    emit(dim, m.dim, g); emit(mid, m.mid, g); emit(green, m.green, g);
+
+    var sq = [], hw = 4.2;
+    seg(sq, -hw, 0, -hw, hw, 0, -hw); seg(sq, hw, 0, -hw, hw, 0, hw); seg(sq, hw, 0, hw, -hw, 0, hw); seg(sq, -hw, 0, hw, -hw, 0, -hw);
+    scanSq = emit(sq, m.soft, g);
+
+    addLabel(1, 'Epidermis superior', g, new THREE.Vector3(4.2, 2.15, 4.2));
+    addLabel(1, 'Parénquima en empalizada', g, new THREE.Vector3(4.2, 1.1, 4.2));
+    addLabel(1, 'Parénquima esponjoso', g, new THREE.Vector3(4.2, -0.5, 4.2));
+    addLabel(1, 'Estoma', g, new THREE.Vector3(-3.6 + 1.2 * 4, -1.8, -3.6 + 1.2 * 2), { hot: true });
+    addLabel(1, 'Tricoma glandular', g, new THREE.Vector3(-2.4, 4.3, 1.8), { hot: true });
+    addLabel(1, 'Haz vascular', g, new THREE.Vector3(VX, VY, 4.2));
+    addLabel(1, 'Cloroplastos', g, new THREE.Vector3(-3.6, 1.2, -3.6), { hot: true });
+  })();
+
+  /* ================= NIVEL 3: MOLÉCULA ================= */
+  var molGroup = new THREE.Group(), dnaGroup = new THREE.Group();
+  G[2].add(molGroup, dnaGroup);
+  (function buildMolecule() {
+    var m = M[2], MS = 1.9, V = THREE.Vector3;
+    var R = 1.4, ang = function (d) { return d * Math.PI / 180; };
+    var P = {};
+    P.N1 = new V(R * Math.cos(ang(-90)), R * Math.sin(ang(-90)), 0);
+    P.C2 = new V(R * Math.cos(ang(-30)), R * Math.sin(ang(-30)), 0);
+    P.C3 = new V(R * Math.cos(ang(30)), R * Math.sin(ang(30)), 0);
+    P.C4 = new V(R * Math.cos(ang(90)), R * Math.sin(ang(90)), 0);
+    P.C5 = new V(R * Math.cos(ang(150)), R * Math.sin(ang(150)), 0);
+    P.C6 = new V(R * Math.cos(ang(210)), R * Math.sin(ang(210)), 0);
+    var a = new V(Math.cos(ang(30)), Math.sin(ang(30)), 0);
+    P.C2p = P.C3.clone().addScaledVector(a, 1.5);
+    var t = new V(-0.5, Math.sqrt(3) / 2, 0), zz = new V(0, 0, 1);
+    var w = t.clone().multiplyScalar(Math.cos(ang(60))).addScaledVector(zz, Math.sin(ang(60)));
+    var d = a.clone().multiplyScalar(Math.cos(ang(35))).addScaledVector(w, Math.sin(ang(35))).normalize();
+    var R5 = 1.28, c5 = P.C2p.clone().addScaledVector(d, R5);
+    var nn = new V().crossVectors(d, a).normalize(), q = new V().crossVectors(nn, d).normalize();
+    var ring = [0, 72, 144, 216, 288].map(function (th) {
+      return c5.clone().addScaledVector(d, -R5 * Math.cos(ang(th))).addScaledVector(q, R5 * Math.sin(ang(th)));
+    });
+    P.C2p = ring[0]; P.C3p = ring[1]; P.C4p = ring[2]; P.C5p = ring[3]; P.N1p = ring[4];
+    P.Cm = P.N1p.clone().addScaledVector(P.N1p.clone().sub(c5).normalize(), 1.47);
+    var names = Object.keys(P), cen = new V();
+    names.forEach(function (n) { cen.add(P[n]); });
+    cen.multiplyScalar(1 / names.length);
+    var S = {};
+    names.forEach(function (n) { S[n] = P[n].clone().sub(cen).multiplyScalar(MS); });
+    var ringC = cen.clone().multiplyScalar(-MS);   // centro del anillo de piridina (origen original)
+
+    var gray = [], green = [], bonds = [], dbl = [];
+    bonds = [['N1', 'C2'], ['C2', 'C3'], ['C3', 'C4'], ['C4', 'C5'], ['C5', 'C6'], ['C6', 'N1'], ['C3', 'C2p'],
+             ['C2p', 'C3p'], ['C3p', 'C4p'], ['C4p', 'C5p'], ['C5p', 'N1p'], ['N1p', 'C2p'], ['N1p', 'Cm']];
+    dbl = [['N1', 'C2'], ['C3', 'C4'], ['C5', 'C6']];
+    bonds.forEach(function (b) { seg(gray, S[b[0]].x, S[b[0]].y, S[b[0]].z, S[b[1]].x, S[b[1]].y, S[b[1]].z); });
+    dbl.forEach(function (b) {
+      var p = S[b[0]].clone().lerp(ringC, 0.2), s2 = S[b[1]].clone().lerp(ringC, 0.2);
+      var p2 = p.clone().lerp(s2, 0.12), s3 = s2.clone().lerp(p, 0.12);
+      seg(gray, p2.x, p2.y, p2.z, s3.x, s3.y, s3.z);
+    });
+    names.forEach(function (n) {
+      var isN = n.charAt(0) === 'N', rad = (isN ? 0.36 : 0.32) * MS;
+      addEllipsoid(isN ? green : gray, S[n].x, S[n].y, S[n].z, rad, rad, rad, 10, 6);
+    });
+    emit(gray, m.mid, molGroup); emit(green, m.green, molGroup);
+
+    addLabel(2, 'Nitrógeno (N)', molGroup, S.N1, { hot: true });
+    addLabel(2, 'Anillo de piridina', molGroup, S.C5);
+    addLabel(2, 'Anillo de pirrolidina', molGroup, S.C4p);
+    addLabel(2, 'Grupo N-metilo', molGroup, S.Cm);
+  })();
+  (function buildDNA() {
+    var m = M[2], gray = [], green = [], N = 90, turns = 3.2, H = 9, rr = 1.3, i;
+    var s1 = [], s2 = [];
+    for (i = 0; i <= N; i++) {
+      var th = i / N * turns * 2 * Math.PI, y = -H / 2 + H * i / N;
+      s1.push([rr * Math.cos(th), y, rr * Math.sin(th)]);
+      s2.push([rr * Math.cos(th + Math.PI), y, rr * Math.sin(th + Math.PI)]);
+      if (i % 3 === 0) seg(green, s1[i][0], y, s1[i][2], s2[i][0], y, s2[i][2]);
+    }
+    poly(gray, s1); poly(gray, s2);
+    emit(gray, m.mid, dnaGroup); emit(green, m.soft, dnaGroup);
+    dnaGroup.position.set(3.8, 0, -3.8);
+    addLabel(2, 'Doble hélice de ADN', dnaGroup, new THREE.Vector3(0, 4.5, 0));
+  })();
+  var scanRing;
+  (function () {
+    var pts = [];
+    for (var i = 0; i <= 64; i++) { var a = 2 * Math.PI * i / 64; pts.push([6.6 * Math.cos(a), 0, 6.6 * Math.sin(a)]); }
+    var arr = []; poly(arr, pts);
+    scanRing = emit(arr, M[2].soft, G[2]);
+  })();
+
+  /* ---------- Postproceso: aberración cromática, viñeta y grano ---------- */
+  var rt = renderer.capabilities.isWebGL2 ? new THREE.WebGLMultisampleRenderTarget(2, 2) : new THREE.WebGLRenderTarget(2, 2);
+  var post = new THREE.ShaderMaterial({
+    uniforms: { tex: { value: rt.texture }, time: { value: 0 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: [
+      'uniform sampler2D tex; uniform float time; varying vec2 vUv;',
+      'void main(){',
+      '  vec2 c = vUv - 0.5; float d = dot(c, c);',
+      '  vec2 off = c * (0.0035 + d * 0.03);',
+      '  float r = texture2D(tex, vUv + off).r;',
+      '  float g = texture2D(tex, vUv).g;',
+      '  float b = texture2D(tex, vUv - off).b;',
+      '  vec3 col = vec3(r, g, b);',
+      '  col *= 1.0 - d * 0.8;',
+      '  float n = fract(sin(dot(vUv * 1000.0 + time, vec2(12.9898, 78.233))) * 43758.5453);',
+      '  col += (n - 0.5) * 0.025;',
+      '  gl_FragColor = vec4(col, 1.0);',
+      '}'
+    ].join('\n'),
+    depthTest: false, depthWrite: false
+  });
+  var quadScene = new THREE.Scene();
+  var quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post));
+
+  var vw = 1, vh = 1;
+  function resize() {
+    vw = stage.clientWidth || window.innerWidth; vh = stage.clientHeight || window.innerHeight;
+    renderer.setSize(vw, vh, false);
+    var pr = renderer.getPixelRatio();
+    rt.setSize(Math.floor(vw * pr), Math.floor(vh * pr));
+    var asp = vw / vh, halfW = Math.max(9.5, 7.6 * asp), halfH = halfW / asp;
+    camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
+    camera.updateProjectionMatrix();
+  }
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+  window.addEventListener('resize', resize);
+  resize();
+
+  /* ---------- Controles ---------- */
+  var ISO_AZ = Math.PI / 4, ISO_EL = Math.atan(1 / Math.SQRT2);
+  var az = ISO_AZ, el = ISO_EL, azT = az, elT = el, LT = 0, L = 0;
+  var zoomInput = document.getElementById('zoom');
+  var tabs = document.querySelectorAll('.tabs button');
+  var cards = [0, 1, 2].map(function (n) { return document.getElementById('card-' + n); });
+  function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+
+  tabs.forEach(function (b) { b.addEventListener('click', function () { LT = +b.dataset.level; }); });
+  zoomInput.addEventListener('input', function () { LT = +zoomInput.value / 100; });
+  document.getElementById('reset').addEventListener('click', function () { azT = ISO_AZ; elT = ISO_EL; });
+
+  var ptr = {};
+  function ptrCount() { return Object.keys(ptr).length; }
+  function pinchDist() { var k = Object.keys(ptr); return Math.hypot(ptr[k[0]].x - ptr[k[1]].x, ptr[k[0]].y - ptr[k[1]].y); }
+  var lastPinch = 0;
+  stage.addEventListener('pointerdown', function (e) {
+    ptr[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+    if (ptrCount() === 2) lastPinch = pinchDist();
+  });
+  stage.addEventListener('pointermove', function (e) {
+    var p = ptr[e.pointerId]; if (!p) return;
+    var n = ptrCount();
+    if (n === 1) {
+      azT -= (e.clientX - p.x) * 0.008;
+      elT = clamp(elT + (e.clientY - p.y) * 0.006, 0.25, 1.35);
+    }
+    p.x = e.clientX; p.y = e.clientY;
+    if (n === 2) { var d = pinchDist(); LT = clamp(LT + (d - lastPinch) * 0.006, 0, 2); lastPinch = d; }
+  });
+  ['pointerup', 'pointercancel'].forEach(function (ev) { stage.addEventListener(ev, function (e) { delete ptr[e.pointerId]; }); });
+  stage.addEventListener('wheel', function (e) { e.preventDefault(); LT = clamp(LT - e.deltaY * 0.0015, 0, 2); }, { passive: false });
+
+  /* ---------- Bucle ---------- */
+  var clock = new THREE.Clock(), t = 0, shownLevel = -1, tmp = new THREE.Vector3(), alpha = [1, 0, 0];
+  function setLevelUI(n) {
+    if (n === shownLevel) return;
+    shownLevel = n;
+    cards.forEach(function (c, i) { c.classList.toggle('on', i === n); });
+    tabs.forEach(function (b) { b.setAttribute('aria-pressed', String(+b.dataset.level === n)); });
+  }
+  function frame() {
+    requestAnimationFrame(frame);
+    var dt = Math.min(clock.getDelta(), 0.05); t += dt;
+    var mo = reduce ? 0.3 : 1;
+
+    L += (LT - L) * Math.min(1, dt * 5);
+    az += (azT - az) * Math.min(1, dt * 6);
+    el += (elT - el) * Math.min(1, dt * 6);
+    if (document.activeElement !== zoomInput) zoomInput.value = String(Math.round(L * 100));
+    setLevelUI(Math.round(L));
+
+    var i;
+    for (i = 0; i < 3; i++) {
+      var f = clamp(1 - (Math.abs(L - i) - 0.12) / 0.5, 0, 1);
+      alpha[i] = f * f * (3 - 2 * f);
+      G[i].visible = alpha[i] > 0.01;
+      var s = Math.exp((L - i) * 1.25);
+      G[i].scale.set(s, s, s);
+    }
+    var pulse = 0.8 + 0.2 * Math.sin(t * 2.2 * mo);
+    for (i = 0; i < FADE.length; i++) {
+      var o = FADE[i];
+      o.m.opacity = o.base * alpha[o.level] * (o.m === M[1].green ? pulse : 1);
+    }
+
+    updateScan(0.04 + 0.92 * ((t * mo / 7) % 1));
+    scanSq.position.y = -1.75 + 4.1 * ((t * mo / 6) % 1);
+    scanRing.position.y = -4.5 + 9 * ((t * mo / 6) % 1);
+    molGroup.rotation.y += dt * 0.25 * mo;
+    dnaGroup.rotation.y += dt * 0.6 * mo;
+
+    var R = 60, ce = Math.cos(el);
+    camera.position.set(R * ce * Math.sin(az), R * Math.sin(el), R * ce * Math.cos(az));
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    scene.updateMatrixWorld(true);
+
+    for (i = 0; i < LABELS.length; i++) {
+      var lb = LABELS[i], a = alpha[lb.level];
+      if (a < 0.06) { if (lb.el.style.opacity !== '0') lb.el.style.opacity = '0'; continue; }
+      tmp.copy(lb.v); lb.group.localToWorld(tmp); tmp.project(camera);
+      var sx = (tmp.x * 0.5 + 0.5) * vw, sy = (-tmp.y * 0.5 + 0.5) * vh;
+      var flip = sx > vw * 0.6;
+      if (flip !== lb.flipped) { lb.flipped = flip; lb.el.classList.toggle('flip', flip); }
+      lb.el.style.transform = 'translate(' + sx.toFixed(1) + 'px,' + sy.toFixed(1) + 'px)' + (flip ? ' translateX(-100%)' : '');
+      lb.el.style.opacity = a.toFixed(2);
+    }
+
+    post.uniforms.time.value = reduce ? 0 : t;
+    renderer.setRenderTarget(rt);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.render(quadScene, quadCam);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
